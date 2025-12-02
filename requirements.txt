@@ -1,7 +1,6 @@
 streamlit
 numpy
-opencv-python
-Pillow
+pandas
+pillow
 scikit-learn
-joblib
-protobuf
+pydicom
