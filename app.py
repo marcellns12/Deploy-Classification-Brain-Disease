@@ -2,12 +2,21 @@ import streamlit as st
 import pickle
 import numpy as np
 from PIL import Image
-import base64
+import pydicom
+from pydicom.pixel_data_handlers.util import apply_voi_lut
+import cv2
 
-# ============ LOAD MODEL ============
+# ============================
+# LOAD MODEL
+# ============================
 model = pickle.load(open("svm_model.pkl", "rb"))
 
-# ============ CUSTOM CSS ============
+# Label mapping (sesuaikan jika berbeda)
+label_names = {0: "Tumor", 1: "Cancer", 2: "Aneurysm"}
+
+# ============================
+# CUSTOM CSS
+# ============================
 page_bg_img = """
 <style>
 body {
@@ -62,43 +71,68 @@ body {
 """
 st.markdown(page_bg_img, unsafe_allow_html=True)
 
-# ============ TITLE ============
+# ============================
+# TITLE
+# ============================
 st.markdown("<div class='main-title'>🧠 Brain Disease Classifier</div>", unsafe_allow_html=True)
 st.markdown("<div class='sub-title'>Tumor • Cancer • Aneurysm</div>", unsafe_allow_html=True)
 st.write("")
 
-# ============ FILE UPLOAD ============
+# ============================
+# PREPROCESSING FUNCTION
+# (SAMA PERSIS DGN TRAINING)
+# ============================
+def preprocess_image(img_file, image_size=(64, 64)):
+    # Jika DICOM (.dcm)
+    if img_file.name.lower().endswith(".dcm"):
+        dicom_data = pydicom.dcmread(img_file)
+        img_array = apply_voi_lut(dicom_data.pixel_array, dicom_data)
+
+        if dicom_data.PhotometricInterpretation == "MONOCHROME1":
+            img_array = np.amax(img_array) - img_array
+
+        img = Image.fromarray(img_array).convert("L")
+        img = img.resize(image_size)
+        img_array = np.array(img)
+
+    else:
+        # JPG / PNG
+        img = Image.open(img_file).convert("L")
+        img = img.resize(image_size)
+        img_array = np.array(img)
+
+    # Flatten + Normalize (sesuai training)
+    features = img_array.flatten() / 255.0
+    return features.reshape(1, -1)
+
+
+# ============================
+# FILE UPLOAD
+# ============================
 st.markdown("<div class='upload-box'>", unsafe_allow_html=True)
-img_file = st.file_uploader("Upload MRI/CT Scan (JPG/PNG)", type=["jpg", "jpeg", "png"])
+img_file = st.file_uploader("Upload MRI/CT Scan (JPG/PNG/DICOM)", type=["jpg", "jpeg", "png", "dcm"])
 st.markdown("</div>", unsafe_allow_html=True)
 
-# ============ PREDICTION ============
-label_names = {0: "Tumor", 1: "Cancer", 2: "Aneurysm"}
-
-def preprocess_image(img: Image.Image):
-    img = img.resize((224, 224))
-    img = img.convert("L")  # grayscale
-    img = np.array(img)
-    img = img.flatten().reshape(1, -1)
-    return img
-
+# ============================
+# PREDICTION
+# ============================
 if img_file:
-    img = Image.open(img_file)
-    st.image(img, caption="Uploaded Image", use_column_width=True)
+    # Tampilkan preview (hanya JPG/PNG)
+    if not img_file.name.lower().endswith(".dcm"):
+        img = Image.open(img_file)
+        st.image(img, caption="Uploaded Image", use_column_width=True)
+    else:
+        st.info("DICOM file uploaded. Processing...")
 
     if st.button("🔍 Predict"):
-        processed = preprocess_image(img)
+        processed = preprocess_image(img_file)
         pred = model.predict(processed)[0]
         label = label_names[pred]
 
-        color_class = ""
-        if label == "Tumor":
-            color_class = "tumor"
-        elif label == "Cancer":
-            color_class = "cancer"
-        else:
-            color_class = "aneurysm"
+        # Warna indikator
+        color_class = "tumor" if label == "Tumor" else "cancer" if label == "Cancer" else "aneurysm"
 
+        # OUTPUT BOX
         st.markdown(f"""
             <div class="pred-box">
                 <h3 style="text-align:center;">Prediction Result</h3>
