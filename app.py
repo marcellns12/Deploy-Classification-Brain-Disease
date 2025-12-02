@@ -10,7 +10,12 @@ from pydicom.pixel_data_handlers.util import apply_voi_lut
 # ============================
 model = pickle.load(open("svm_model.pkl", "rb"))
 
-label_names = {0: "Tumor", 1: "Cancer", 2: "Aneurysm"}
+# Label mapping sesuai permintaan
+label_names = {
+    0: "Aneurysm",
+    1: "Cancer",
+    2: "Tumor"
+}
 
 # ============================
 # CUSTOM CSS
@@ -73,7 +78,7 @@ st.markdown(page_bg_img, unsafe_allow_html=True)
 # TITLE
 # ============================
 st.markdown("<div class='main-title'>🧠 Brain Disease Classifier</div>", unsafe_allow_html=True)
-st.markdown("<div class='sub-title'>Tumor • Cancer • Aneurysm</div>", unsafe_allow_html=True)
+st.markdown("<div class='sub-title'>Aneurysm • Cancer • Tumor</div>", unsafe_allow_html=True)
 st.write("")
 
 # ============================
@@ -107,9 +112,11 @@ img_file = st.file_uploader("Upload MRI/CT Scan (JPG/PNG/DICOM)", type=["jpg", "
 st.markdown("</div>", unsafe_allow_html=True)
 
 # ============================
-# PREDICT
+# PREDICTION
 # ============================
 if img_file:
+
+    # Display preview for JPG/PNG only
     if not img_file.name.lower().endswith(".dcm"):
         img = Image.open(img_file)
         st.image(img, caption="Uploaded Image", use_column_width=True)
@@ -121,7 +128,13 @@ if img_file:
         pred = model.predict(processed)[0]
         label = label_names[pred]
 
-        color_class = "tumor" if label == "Tumor" else "cancer" if label == "Cancer" else "aneurysm"
+        # Color class based on label
+        if label == "Tumor":
+            color_class = "tumor"
+        elif label == "Cancer":
+            color_class = "cancer"
+        else:
+            color_class = "aneurysm"
 
         st.markdown(f"""
             <div class="pred-box">
