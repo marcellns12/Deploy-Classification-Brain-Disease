@@ -1,134 +1,133 @@
 import streamlit as st
-import numpy as np
 import pickle
-import cv2
+import numpy as np
 from PIL import Image
 import pydicom
-import os
-from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import train_test_split
+from pydicom.pixel_data_handlers.util import apply_voi_lut
 
-# =========================
-# Load Model
-# =========================
-svm_model = pickle.load(open("svm_model.pkl", "rb"))
+# ============================
+# LOAD MODEL
+# ============================
+model = pickle.load(open("svm_model.pkl", "rb"))
 
-# =========================
-# Load Dataset Function
-# =========================
-def load_data(image_size, folder):
-    data = []
-    labels = []
+label_names = {0: "Tumor", 1: "Cancer", 2: "Aneurysm"}
 
-    for label in os.listdir(folder):
-        label_path = os.path.join(folder, label)
+# ============================
+# CUSTOM CSS
+# ============================
+page_bg_img = """
+<style>
+body {
+    background: #0f0f0f;
+    color: white;
+    font-family: 'Segoe UI', sans-serif;
+}
 
-        if not os.path.isdir(label_path):
-            continue
+.main-title {
+    text-align: center;
+    font-size: 36px;
+    font-weight: 700;
+    color: #00eaff;
+    margin-bottom: 5px;
+}
 
-        for img_name in os.listdir(label_path):
-            img_path = os.path.join(label_path, img_name)
+.sub-title {
+    text-align: center;
+    font-size: 18px;
+    margin-top: -10px;
+    color: #cccccc;
+}
 
-            # Load JPG
-            if img_name.lower().endswith(('.jpg', '.jpeg', '.png')):
-                img = Image.open(img_path).convert('L')
-                img = img.resize(image_size)
-                img_array = np.array(img).flatten()
+.upload-box {
+    border: 2px dashed #00eaff;
+    border-radius: 15px;
+    padding: 25px;
+    text-align: center;
+    background: rgba(255,255,255,0.03);
+}
 
-            # Load DICOM
-            elif img_name.lower().endswith('.dcm'):
-                dicom_data = pydicom.dcmread(img_path)
-                img_array = dicom_data.pixel_array
+.pred-box {
+    background: #1c1c1c;
+    padding: 20px;
+    border-radius: 15px;
+    margin-top: 20px;
+    box-shadow: 0 0 15px rgba(0, 234, 255, 0.3);
+}
 
-                if len(img_array.shape) > 2:
-                    img_array = img_array[:, :, 0]
+.label-tag {
+    padding: 8px 20px;
+    border-radius: 50px;
+    font-size: 20px;
+    color: black;
+    font-weight: 700;
+}
 
-                img_array = cv2.normalize(img_array, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-                img_array = cv2.resize(img_array, image_size)
-                img_array = img_array.flatten()
+.tumor { background: #ff0059; }
+.cancer { background: #ffaa00; }
+.aneurysm { background: #00ff9d; }
+</style>
+"""
+st.markdown(page_bg_img, unsafe_allow_html=True)
 
-            else:
-                continue
+# ============================
+# TITLE
+# ============================
+st.markdown("<div class='main-title'>🧠 Brain Disease Classifier</div>", unsafe_allow_html=True)
+st.markdown("<div class='sub-title'>Tumor • Cancer • Aneurysm</div>", unsafe_allow_html=True)
+st.write("")
 
-            data.append(img_array / 255.0)
-            labels.append(label)
+# ============================
+# PREPROCESS IMAGE (64×64 grayscale)
+# ============================
+def preprocess_image(img_file, image_size=(64, 64)):
+    if img_file.name.lower().endswith(".dcm"):
+        dicom_data = pydicom.dcmread(img_file)
+        img_array = apply_voi_lut(dicom_data.pixel_array, dicom_data)
 
-    return np.array(data), np.array(labels)
+        if dicom_data.PhotometricInterpretation == "MONOCHROME1":
+            img_array = np.amax(img_array) - img_array
 
-# =========================
-# Load Data
-# =========================
-extracted_folder = 'brain_dataset'
-image_size = (64, 64)
-data, labels = load_data(image_size, extracted_folder)
+        img = Image.fromarray(img_array).convert("L")
+        img = img.resize(image_size)
+        img_array = np.array(img)
 
-# =========================
-# Train/Test Split
-# =========================
-X_train, X_test, y_train, y_test = train_test_split(
-    data, labels, test_size=0.2, random_state=42
-)
+    else:
+        img = Image.open(img_file).convert("L")
+        img = img.resize(image_size)
+        img_array = np.array(img)
 
-# =========================
-# Label Encoding
-# =========================
-def encode_labels(labels):
-    le = LabelEncoder()
-    encoded = le.fit_transform(labels)
-    return encoded, le
+    features = img_array.flatten() / 255.0
+    return features.reshape(1, -1)
 
-y_train_encoded, label_encoder = encode_labels(y_train)
-y_test_encoded, _ = encode_labels(y_test)
+# ============================
+# FILE UPLOADER
+# ============================
+st.markdown("<div class='upload-box'>", unsafe_allow_html=True)
+img_file = st.file_uploader("Upload MRI/CT Scan (JPG/PNG/DICOM)", type=["jpg", "jpeg", "png", "dcm"])
+st.markdown("</div>", unsafe_allow_html=True)
 
-# =========================
-# Predict Single Image
-# =========================
-def predict_image(uploaded_file):
-    try:
-        file_extension = uploaded_file.name.split('.')[-1].lower()
+# ============================
+# PREDICT
+# ============================
+if img_file:
+    if not img_file.name.lower().endswith(".dcm"):
+        img = Image.open(img_file)
+        st.image(img, caption="Uploaded Image", use_column_width=True)
+    else:
+        st.info("DICOM file uploaded. Processing...")
 
-        # JPG / PNG
-        if file_extension in ['jpg', 'jpeg', 'png']:
-            img = Image.open(uploaded_file).convert('L')
-            img = img.resize(image_size)
-            img_array = np.array(img).flatten() / 255.0
+    if st.button("🔍 Predict"):
+        processed = preprocess_image(img_file)
+        pred = model.predict(processed)[0]
+        label = label_names[pred]
 
-        # DICOM
-        elif file_extension == 'dcm':
-            dicom_data = pydicom.dcmread(uploaded_file)
-            img_array = dicom_data.pixel_array
+        color_class = "tumor" if label == "Tumor" else "cancer" if label == "Cancer" else "aneurysm"
 
-            if len(img_array.shape) > 2:
-                img_array = img_array[:, :, 0]
-
-            img_array = cv2.normalize(img_array, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-            img_array = cv2.resize(img_array, image_size)
-            img_array = img_array.flatten() / 255.0
-
-        else:
-            return "Unsupported file format"
-
-        # Prediction
-        prediction = svm_model.predict(np.expand_dims(img_array, axis=0))
-        decoded = label_encoder.inverse_transform(prediction)
-
-        return decoded[0]
-
-    except Exception as e:
-        return f"Error processing file: {e}"
-
-# =========================
-# STREAMLIT UI
-# =========================
-st.title("Brain Disease Classification using SVM")
-st.write("Upload JPG/PNG/DICOM to predict brain tumor category.")
-
-uploaded_file = st.file_uploader("Upload medical image", type=["jpg", "jpeg", "png", "dcm"])
-
-if uploaded_file is not None:
-    st.success("File uploaded!")
-
-    prediction = predict_image(uploaded_file)
-
-    st.subheader("Prediction Result:")
-    st.write(prediction)
+        st.markdown(f"""
+            <div class="pred-box">
+                <h3 style="text-align:center;">Prediction Result</h3>
+                <div style="text-align:center; margin-top:15px;">
+                    <span class="label-tag {color_class}">{label}</span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
