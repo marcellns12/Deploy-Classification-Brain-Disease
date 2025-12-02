@@ -2,6 +2,7 @@ import streamlit as st
 import pickle
 import numpy as np
 from PIL import Image
+import cv2
 import pydicom
 from pydicom.pixel_data_handlers.util import apply_voi_lut
 
@@ -10,7 +11,7 @@ from pydicom.pixel_data_handlers.util import apply_voi_lut
 # ============================
 model = pickle.load(open("svm_model.pkl", "rb"))
 
-# Label mapping sesuai permintaan
+# Label mapping
 label_names = {
     0: "Aneurysm",
     1: "Cancer",
@@ -85,22 +86,28 @@ st.write("")
 # PREPROCESS IMAGE (64×64 grayscale)
 # ============================
 def preprocess_image(img_file, image_size=(64, 64)):
+
     if img_file.name.lower().endswith(".dcm"):
+        # Read DICOM
         dicom_data = pydicom.dcmread(img_file)
         img_array = apply_voi_lut(dicom_data.pixel_array, dicom_data)
 
         if dicom_data.PhotometricInterpretation == "MONOCHROME1":
-            img_array = np.amax(img_array) - img_array
+            img_array = np.max(img_array) - img_array
 
-        img = Image.fromarray(img_array).convert("L")
-        img = img.resize(image_size)
-        img_array = np.array(img)
+        # Normalize 0-255
+        img_array = cv2.normalize(img_array, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+        # Resize using cv2
+        img_array = cv2.resize(img_array, image_size, interpolation=cv2.INTER_AREA)
 
     else:
+        # JPG/PNG
         img = Image.open(img_file).convert("L")
         img = img.resize(image_size)
         img_array = np.array(img)
 
+    # Flatten and scale
     features = img_array.flatten() / 255.0
     return features.reshape(1, -1)
 
@@ -116,7 +123,7 @@ st.markdown("</div>", unsafe_allow_html=True)
 # ============================
 if img_file:
 
-    # Display preview for JPG/PNG only
+    # Display preview for JPG/PNG
     if not img_file.name.lower().endswith(".dcm"):
         img = Image.open(img_file)
         st.image(img, caption="Uploaded Image", use_column_width=True)
@@ -128,7 +135,7 @@ if img_file:
         pred = model.predict(processed)[0]
         label = label_names[pred]
 
-        # Color class based on label
+        # Pick color
         if label == "Tumor":
             color_class = "tumor"
         elif label == "Cancer":
