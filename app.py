@@ -2,9 +2,7 @@ import streamlit as st
 import pickle
 import numpy as np
 from PIL import Image
-import cv2
 import base64
-import cv2
 
 # ============ LOAD MODEL ============
 model = pickle.load(open("svm_model.pkl", "rb"))
@@ -77,11 +75,11 @@ st.markdown("</div>", unsafe_allow_html=True)
 # ============ PREDICTION ============
 label_names = {0: "Tumor", 1: "Cancer", 2: "Aneurysm"}
 
-def preprocess_image(img):
+def preprocess_image(img: Image.Image):
     img = img.resize((224, 224))
+    img = img.convert("L")  # grayscale
     img = np.array(img)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    img = img.reshape(1, -1)
+    img = img.flatten().reshape(1, -1)
     return img
 
 if img_file:
@@ -101,7 +99,6 @@ if img_file:
         else:
             color_class = "aneurysm"
 
-        # Hasil Prediction Box
         st.markdown(f"""
             <div class="pred-box">
                 <h3 style="text-align:center;">Prediction Result</h3>
